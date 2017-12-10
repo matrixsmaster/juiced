@@ -1,41 +1,26 @@
-APP		= juice
-#CPU		= -phi
+CC=g++
+CFLAGS=-std=c++11 -c -g -Wall -DHOST_PC=1
+LDFLAGS=-g
 
-#PREFIX	= /mnt/angar/toolchain/zpu-elf-linux64/bin/zpu-elf-
-CXX		= $(PREFIX)g++
-CC		= $(PREFIX)gcc
-LD		= $(PREFIX)g++
-AR		= $(PREFIX)ar
-STRIP	= $(PREFIX)strip
-OBJCP	= $(PREFIX)objcopy
+SOURCES=  \
+TinyJS.cpp \
+TinyJS_Functions.cpp \
+TinyJS_MathFunctions.cpp \
+TinyJS_StringFunctions.cpp
 
-INCPATHS= 
-DEFINES = -DHOST_PC=1
-CXXFLAGS= -O2 -Wall -fmessage-length=0 $(CPU)
-LDFLAGS = $(CPU)
-LDLIBS  = -lm
-ARFLAGS	= 
+OBJECTS=$(SOURCES:.cpp=.o)
 
-SRCS	= $(wildcard *.cpp)
-OBJS	= $(SRCS:.cpp=.o)
+all: Script
+.PHONY: all Script
 
-all: $(APP) # $(APP).bin
+run_tests: run_tests.o $(OBJECTS)
+	$(CC) $(LDFLAGS) run_tests.o $(OBJECTS) -o $@
 
-$(APP): $(OBJS)
-	$(LD) $(LDFLAGS) $(OBJS) -o $(APP) $(LDLIBS)
-	$(STRIP) $(APP)
+Script: Script.o $(OBJECTS)
+	$(CC) $(LDFLAGS) Script.o $(OBJECTS) -o $@
 
-$(APP).bin: $(APP)
-	$(OBJCP) -O binary $(APP) $(APP).bin
-
-%.o: %.c
-	$(CC) $(CXXFLAGS) $(DEFINES) $(INCPATHS) -c $<
-
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(DEFINES) $(INCPATHS) -c $<
+.cpp.o:
+	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -f *.o 2> /dev/null
-	rm -f $(APP) $(APP).bin 2> /dev/null
-
-.PHONY: all clean
+	rm -fv run_tests Script run_tests.o Script.o $(OBJECTS)
