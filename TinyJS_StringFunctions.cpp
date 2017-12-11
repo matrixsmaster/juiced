@@ -317,8 +317,6 @@ static void scStringTrim(const CFunctionsScopePtr &c, void *userdata) {
 	c->setReturnVar(c->newScriptVar(str.substr(start, end)));
 }
 
-
-
 static void scCharToInt(const CFunctionsScopePtr &c, void *) {
 	string str = c->getArgument("ch")->toString();;
 	int val = 0;
@@ -326,7 +324,6 @@ static void scCharToInt(const CFunctionsScopePtr &c, void *) {
 		val = (int)str.c_str()[0];
 	c->setReturnVar(c->newScriptVar(val));
 }
-
 
 static void scStringFromCharCode(const CFunctionsScopePtr &c, void *) {
 	char str[2];
@@ -337,14 +334,14 @@ static void scStringFromCharCode(const CFunctionsScopePtr &c, void *) {
 
 static void scStringFromFile(const CFunctionsScopePtr &c, void *) {
 	string ret,str = this2string(c);
-	printf("ACHTUNG! << %s\n",str.c_str());
+//	printf("ACHTUNG! << %s\n",str.c_str());
 
 	FILE* f = fopen(str.c_str(),"r");
 	if (f) {
 		fseek(f,0,SEEK_END);
 		size_t n = ftell(f);
 		fseek(f,0,SEEK_SET);
-		printf("FILE IS %lu bytes LONG\n",n);
+//		printf("FILE IS %lu bytes LONG\n",n);
 		ret.resize(n);
 		fread(&(ret[0]),n,1,f);
 		fclose(f);

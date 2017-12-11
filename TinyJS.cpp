@@ -4162,6 +4162,7 @@ CScriptVarLinkPtr CTinyJS::evaluateComplex(CScriptTokenizer &Tokenizer) {
 	try {
 		do {
 			execute_statement(execute);
+//			printf("tk = %d\n",t->tk);
 			while (t->tk==';') t->match(';'); // skip empty statements
 		} while (t->tk!=LEX_EOF);
 	} catch (...) {
@@ -4169,6 +4170,7 @@ CScriptVarLinkPtr CTinyJS::evaluateComplex(CScriptTokenizer &Tokenizer) {
 		t=0; // clean up Tokenizer
 		throw; // 
 	}
+//	printf("\nOTHER STUFF BEGINS HERE\n");
 	t=0;
 	ClearUnreferedVars(execute.value);
 

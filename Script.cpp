@@ -60,7 +60,7 @@ void js_dump(const CFunctionsScopePtr &v, void *) {
 #define handle_error(msg) do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
 char *topOfStack;
-#define sizeOfStack 32*1024*1024 /* for example 1 MB depend of Compiler-Options */
+#define sizeOfStack 64*1024*1024 /* for example 1 MB depend of Compiler-Options */
 #define sizeOfSafeStack 50*1024 /* safety area */
 
 int main(int argc, char* argv[])
