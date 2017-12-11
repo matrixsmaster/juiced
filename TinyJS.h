@@ -2,20 +2,13 @@
  * TinyJS
  *
  * A single-file Javascript-alike engine
- *
  * Authored By Gordon Williams <gw@pur3.co.uk>
- *
  * Copyright (C) 2009 Pur3 Ltd
  *
-
  * 42TinyJS
- *
  * A fork of TinyJS with the goal to makes a more JavaScript/ECMA compliant engine
- *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
- *
  * Copyright (C) 2010-2014 ardisoft
- *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,10 +16,8 @@
  * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
  * of the Software, and to permit persons to whom the Software is furnished to do
  * so, subject to the following conditions:
-
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
-
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -48,7 +39,36 @@
 #include <cassert>
 #include <limits>
 
-#include "config.h"
+#define NO_POOL_ALLOCATOR
+#define NO_REGEXP
+#define NO_GENERATORS
+#define NO_THREADING
+
+#if defined(__GXX_EXPERIMENTAL_CXX0X__) || __cplusplus >= 201103L
+
+#	define HAVE_CXX11_RVALUE_REFERENCE 1
+#	define MEMBER_DELETE =delete
+
+#	if !defined(NO_CXX_THREADS) && !defined(NO_THREADING)
+#		define HAVE_CXX_THREADS 1
+#	endif
+#else
+#	if _MSC_VER >= 1600
+#		define HAVE_CXX11_RVALUE_REFERENCE 1
+#	endif
+#	if _MSC_VER >= 1700
+#		if !defined(NO_CXX_THREADS) && !defined(NO_THREADING)
+#			define HAVE_CXX_THREADS 1
+#		endif
+#	endif
+#	if _MSC_VER >= 1800
+#		define define MEMBER_DELETE =delete
+#	endif
+#endif
+
+#ifndef MEMBER_DELETE
+#	define MEMBER_DELETE
+#endif
 
 #ifdef NO_POOL_ALLOCATOR
 	template<typename T, int num_objects=64>
@@ -1509,52 +1529,6 @@ private:
 };
 inline define_newScriptVar_Fnc(Array, CTinyJS *Context, Array_t) { return new CScriptVarArray(Context); } 
 
-
-////////////////////////////////////////////////////////////////////////// 
-/// CScriptVarRegExp
-//////////////////////////////////////////////////////////////////////////
-#ifndef NO_REGEXP
-
-define_ScriptVarPtr_Type(RegExp);
-class CScriptVarRegExp : public CScriptVarObject {
-protected:
-	CScriptVarRegExp(CTinyJS *Context, const std::string &Source, const std::string &Flags);
-	CScriptVarRegExp(const CScriptVarRegExp &Copy) : CScriptVarObject(Copy), regexp(Copy.regexp), flags(Copy.flags) {} ///< Copy protected -> use clone for public
-public:
-	virtual ~CScriptVarRegExp();
-	virtual CScriptVarPtr clone();
-	virtual bool isRegExp(); // { return true; }
-	virtual CScriptVarPtr toString_CallBack(CScriptResult &execute, int radix=0);
-
-	CScriptVarPtr exec(const std::string &Input, bool Test=false);
-
-	bool Global() { return flags.find('g')!=std::string::npos; }
-	bool IgnoreCase() { return flags.find('i')!=std::string::npos; }
-	bool Multiline() { return true; /* currently always true -- flags.find('m')!=std::string::npos;*/ }
-	bool Sticky() { return flags.find('y')!=std::string::npos; }
-	const std::string &Regexp() { return regexp; }
-	unsigned int LastIndex();
-	void LastIndex(unsigned int Idx);
-
-	static const char *ErrorStr(int Error);
-protected:
-	std::string regexp;
-	std::string flags;
-private:
-	void native_Global(const CFunctionsScopePtr &c, void *data);
-	void native_IgnoreCase(const CFunctionsScopePtr &c, void *data);
-	void native_Multiline(const CFunctionsScopePtr &c, void *data);
-	void native_Sticky(const CFunctionsScopePtr &c, void *data);
-	void native_Source(const CFunctionsScopePtr &c, void *data);
-
-	friend define_newScriptVar_Fnc(RegExp, CTinyJS *Context, const std::string &, const std::string &);
-
-};
-inline define_newScriptVar_Fnc(RegExp, CTinyJS *Context, const std::string &Obj, const std::string &Flags) { return new CScriptVarRegExp(Context, Obj, Flags); }
-
-#endif /* NO_REGEXP */
-
-
 ////////////////////////////////////////////////////////////////////////// 
 /// CScriptVarFunction
 //////////////////////////////////////////////////////////////////////////
@@ -1862,73 +1836,6 @@ private:
 };
 inline define_newScriptVar_NamedFnc(DefaultIterator, CTinyJS *Context, const CScriptVarPtr &Object, int Mode) { return new CScriptVarDefaultIterator(Context, Object, Mode); }
 
-
-////////////////////////////////////////////////////////////////////////// 
-/// CScriptVarGenerator
-//////////////////////////////////////////////////////////////////////////
-
-#ifndef NO_GENERATORS
-
-define_dummy_t(Generator);
-define_ScriptVarPtr_Type(Generator);
-
-class CScriptVarGenerator : public CScriptVarObject {
-protected:
-	CScriptVarGenerator(CTinyJS *Context, const CScriptVarPtr &FunctionRoot, const CScriptVarFunctionPtr &Function);
-	CScriptVarGenerator(const CScriptVarGenerator &Copy) 
-		: 
-		CScriptVarObject(Copy), functionRoot(Copy.functionRoot), function(Copy.function), coroutine(this) {} ///< Copy protected -> use clone for public
-public:
-	virtual ~CScriptVarGenerator();
-	virtual CScriptVarPtr clone();
-	virtual bool isIterator();
-	virtual bool isGenerator();
-	virtual std::string getVarType(); // { return "generator"; }
-	virtual std::string getVarTypeTagName(); // { return "Generator"; }
-
-	CScriptVarPtr getFunctionRoot() { return functionRoot; }
-	CScriptVarFunctionPtr getFunction() { return function; }
-
-	virtual void setTemporaryMark_recursive(uint32_t ID);
-
-	void native_send(const CFunctionsScopePtr &c, void *data);
-	void native_throw(const CFunctionsScopePtr &c, void *data);
-	int Coroutine();
-	void setException(const CScriptVarPtr &YieldVar) {
-		yieldVar = YieldVar;
-		yieldVarIsException = true;
-	}
-	bool isClosed() { return closed; }
-	CScriptVarPtr yield(CScriptResult &execute, CScriptVar *YieldIn);
-private:
-	CScriptVarPtr functionRoot;
-	CScriptVarFunctionPtr function;
-	bool closed;
-	CScriptVarPtr yieldVar;
-	bool yieldVarIsException;
-	class CCooroutine : public CScriptCoroutine {
-		CCooroutine(CScriptVarGenerator* Parent) : parent(Parent) {}
-		int Coroutine() { return parent->Coroutine(); }
-		void yield() { CScriptCoroutine::yield(); }
-		CScriptVarGenerator* parent;
-		friend class CScriptVarGenerator;
-	} coroutine;
-	friend class CCooroutine;
-
-public:
-	void *callersStackBase;
-	int callersScopeSize;
-	CScriptTokenizer *callersTokenizer;
-	bool callersHaveTry;
-	std::vector<CScriptVarScopePtr> generatorScopes;
-
-	friend define_newScriptVar_NamedFnc(CScriptVarGenerator, CTinyJS *, const CScriptVarPtr &, const CScriptVarFunctionPtr &);
-
-};
-inline define_newScriptVar_NamedFnc(CScriptVarGenerator, CTinyJS *Context, const CScriptVarPtr &FunctionRoot, const CScriptVarFunctionPtr &Function) { return new CScriptVarGenerator(Context, FunctionRoot, Function); }
-
-#endif
-
 //////////////////////////////////////////////////////////////////////////
 template<typename T>
 inline CScriptVarPtr CScriptVar::newScriptVar(T t) { return ::newScriptVar(context, t); }
@@ -2114,9 +2021,6 @@ public:
 	CScriptVarPtr numberPrototype; /// Built in number class
 	CScriptVarPtr booleanPrototype; /// Built in boolean class
 	CScriptVarPtr iteratorPrototype; /// Built in iterator class
-#ifndef NO_GENERATORS
-	CScriptVarPtr generatorPrototype; /// Built in generator class
-#endif /*NO_GENERATORS*/
 	CScriptVarPtr functionPrototype; /// Built in function class
 	const CScriptVarPtr &getErrorPrototype(ERROR_TYPES Type) { return errorPrototypes[Type]; }
 private:
@@ -2149,13 +2053,6 @@ public:
 	// function call
 	CScriptVarPtr callFunction(const CScriptVarFunctionPtr &Function, std::vector<CScriptVarPtr> &Arguments, const CScriptVarPtr &This, CScriptVarPtr *newThis=0);
 	CScriptVarPtr callFunction(CScriptResult &execute, const CScriptVarFunctionPtr &Function, std::vector<CScriptVarPtr> &Arguments, const CScriptVarPtr &This, CScriptVarPtr *newThis=0);
-	//////////////////////////////////////////////////////////////////////////
-#ifndef NO_GENERATORS
-	std::vector<CScriptVarGenerator *> generatorStack;
-	void generator_start(CScriptVarGenerator *Generator);
-	CScriptVarPtr generator_yield(CScriptResult &execute, CScriptVar *YieldIn);
-#endif
-	//////////////////////////////////////////////////////////////////////////
 
 	// parsing - in order of precedence
 	CScriptVarPtr mathsOp(CScriptResult &execute, const CScriptVarPtr &a, const CScriptVarPtr &b, int op);

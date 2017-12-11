@@ -2,20 +2,13 @@
  * TinyJS
  *
  * A single-file Javascript-alike engine
- *
  * Authored By Gordon Williams <gw@pur3.co.uk>
- *
  * Copyright (C) 2009 Pur3 Ltd
  *
-
  * 42TinyJS
- *
  * A fork of TinyJS with the goal to makes a more JavaScript/ECMA compliant engine
- *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
- *
  * Copyright (C) 2010-2014 ardisoft
- *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,10 +16,8 @@
  * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
  * of the Software, and to permit persons to whom the Software is furnished to do
  * so, subject to the following conditions:
-
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
-
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -36,91 +27,15 @@
  * SOFTWARE.
  */
 
-#ifdef _DEBUG
-#	ifndef _MSC_VER
-#		define DEBUG_MEMORY 1
-#	endif
-#endif
 #include <errno.h>
 #include <sstream>
 #include <fstream>
-
+#include <algorithm>
+#include <cmath>
+#include <memory>
 #include "TinyJS.h"
 
-#ifndef ASSERT
-#	define ASSERT(X) assert(X)
-#endif
-
-#ifndef NO_REGEXP 
-#	if defined HAVE_TR1_REGEX
-#		include <tr1/regex>
-		using namespace std::tr1;
-#	elif defined HAVE_BOOST_REGEX
-#		include <boost/regex.hpp>
-		using namespace boost;
-#	else
-#		include <regex>
-#	endif
-#else
-#	include <algorithm>
-#	include <cmath>
-#	include <memory>
-#endif
-
 using namespace std;
-
-// ----------------------------------------------------------------------------------- 
-//////////////////////////////////////////////////////////////////////////
-/// Memory Debug
-//////////////////////////////////////////////////////////////////////////
-
-//#define DEBUG_MEMORY 1
-
-#if DEBUG_MEMORY
-
-vector<CScriptVar*> allocatedVars;
-vector<CScriptVarLink*> allocatedLinks;
-
-void mark_allocated(CScriptVar *v) {
-	allocatedVars.push_back(v);
-}
-
-void mark_deallocated(CScriptVar *v) {
-	for (size_t i=0;i<allocatedVars.size();i++) {
-		if (allocatedVars[i] == v) {
-			allocatedVars.erase(allocatedVars.begin()+i);
-			break;
-		}
-	}
-}
-
-void mark_allocated(CScriptVarLink *v) {
-	allocatedLinks.push_back(v);
-}
-
-void mark_deallocated(CScriptVarLink *v) {
-	for (size_t i=0;i<allocatedLinks.size();i++) {
-		if (allocatedLinks[i] == v) {
-			allocatedLinks.erase(allocatedLinks.begin()+i);
-			break;
-		}
-	}
-}
-
-void show_allocated() {
-	for (size_t i=0;i<allocatedVars.size();i++) {
-		printf("ALLOCATED, %d refs\n", allocatedVars[i]->getRefs());
-		allocatedVars[i]->trace("  ");
-	}
-	for (size_t i=0;i<allocatedLinks.size();i++) {
-		printf("ALLOCATED LINK %s, allocated[%d] to \n", allocatedLinks[i]->getName().c_str(), allocatedLinks[i]->getVarPtr()->getRefs());
-		allocatedLinks[i]->getVarPtr()->trace("  ");
-	}
-	allocatedVars.clear();
-	allocatedLinks.clear();
-}
-#endif
-
 
 //////////////////////////////////////////////////////////////////////////
 /// Utils
@@ -400,7 +315,7 @@ void CScriptLex::getNextToken() {
 							}
 							tkStr += (char)strtol(buf, 0, 16);
 						} else
-							throw new CScriptException(SyntaxError, "malformed hexadezimal character escape sequence", currentFile, pos.currentLine, currentColumn());	
+							throw new CScriptException(SyntaxError, "malformed hexadecimal character escape sequence", currentFile, pos.currentLine, currentColumn());
 					}
 					default: {
 						if(isOctal(currCh)) {
@@ -530,11 +445,6 @@ void CScriptLex::getNextToken() {
 					getNextCh();
 				}
 				if(currCh == '/') {
-#ifndef NO_REGEXP
-					try { regex(tkStr.substr(1), regex_constants::ECMAScript); } catch(regex_error e) {
-						throw new CScriptException(SyntaxError, string(e.what())+" - "+CScriptVarRegExp::ErrorStr(e.code()), currentFile, pos.currentLine, currentColumn());
-					}
-#endif /* NO_REGEXP */
 					do {
 						tkStr.append(1, currCh);
 						getNextCh();
@@ -1870,17 +1780,6 @@ void CScriptTokenizer::tokenizeLiteral(ScriptTokenState &State, int Flags) {
 		}
 		setTokenSkip(State);
 		break;
-#ifndef NO_GENERATORS
-	case LEX_R_YIELD:
-		if( (Flags & TOKENIZE_FLAGS_canYield)==0) 
-			throw new CScriptException(SyntaxError, "'yield' expression, but not in a function.", l->currentFile, l->currentLine(), l->currentColumn());
-		pushToken(State.Tokens);
-		if(l->tk != ';' && l->tk != '}' && !l->lineBreakBeforeToken) {
-			tokenizeExpression(State, Flags);
-		}
-		State.FunctionIsGenerator = true;
-		break;
-#endif
 	case '(':
 		State.Marks.push_back(pushToken(State.Tokens)); // push Token & push BeginIdx
 		tokenizeExpression(State, Flags & ~TOKENIZE_FLAGS_noIn);
@@ -3712,119 +3611,12 @@ void CScriptVarArray::native_Length(const CFunctionsScopePtr &c, void *data) {
 	c->setReturnVar(newScriptVar(c->getArgument("this")->getArrayLength()));
 }
 
-
-////////////////////////////////////////////////////////////////////////// 
-/// CScriptVarRegExp
-//////////////////////////////////////////////////////////////////////////
-
-#ifndef NO_REGEXP
-
-CScriptVarRegExp::CScriptVarRegExp(CTinyJS *Context, const string &Regexp, const string &Flags) : CScriptVarObject(Context, Context->regexpPrototype), regexp(Regexp), flags(Flags) {
-	addChild("global", ::newScriptVarAccessor<CScriptVarRegExp>(Context, this, &CScriptVarRegExp::native_Global, 0, 0, 0), 0);
-	addChild("ignoreCase", ::newScriptVarAccessor<CScriptVarRegExp>(Context, this, &CScriptVarRegExp::native_IgnoreCase, 0, 0, 0), 0);
-	addChild("multiline", ::newScriptVarAccessor<CScriptVarRegExp>(Context, this, &CScriptVarRegExp::native_Multiline, 0, 0, 0), 0);
-	addChild("sticky", ::newScriptVarAccessor<CScriptVarRegExp>(Context, this, &CScriptVarRegExp::native_Sticky, 0, 0, 0), 0);
-	addChild("regexp", ::newScriptVarAccessor<CScriptVarRegExp>(Context, this, &CScriptVarRegExp::native_Source, 0, 0, 0), 0);
-	addChild("lastIndex", newScriptVar(0));
-}
-CScriptVarRegExp::~CScriptVarRegExp() {}
-CScriptVarPtr CScriptVarRegExp::clone() { return new CScriptVarRegExp(*this); }
-bool CScriptVarRegExp::isRegExp() { return true; }
-//int CScriptVarRegExp::getInt() {return strtol(regexp.c_str(),0,0); }
-//bool CScriptVarRegExp::getBool() {return regexp.length()!=0;}
-//double CScriptVarRegExp::getDouble() {return strtod(regexp.c_str(),0);}
-//string CScriptVarRegExp::getString() { return "/"+regexp+"/"+flags; }
-//string CScriptVarRegExp::getParsableString(const string &indentString, const string &indent, uint32_t uniqueID, bool &hasRecursion) { return getString(); }
-CScriptVarPtr CScriptVarRegExp::toString_CallBack(CScriptResult &execute, int radix) {
-	return newScriptVar("/"+regexp+"/"+flags);
-}
-void CScriptVarRegExp::native_Global(const CFunctionsScopePtr &c, void *data) {
-	c->setReturnVar(constScriptVar(Global()));
-}
-void CScriptVarRegExp::native_IgnoreCase(const CFunctionsScopePtr &c, void *data) {
-	c->setReturnVar(constScriptVar(IgnoreCase()));
-}
-void CScriptVarRegExp::native_Multiline(const CFunctionsScopePtr &c, void *data) {
-	c->setReturnVar(constScriptVar(Multiline()));
-}
-void CScriptVarRegExp::native_Sticky(const CFunctionsScopePtr &c, void *data) {
-	c->setReturnVar(constScriptVar(Sticky()));
-}
-void CScriptVarRegExp::native_Source(const CFunctionsScopePtr &c, void *data) {
-	c->setReturnVar(newScriptVar(regexp));
-}
-unsigned int CScriptVarRegExp::LastIndex() {
-	CScriptVarPtr lastIndex = findChild("lastIndex");
-	if(lastIndex) return lastIndex->toNumber().toInt32();
-	return 0;
-}
-void CScriptVarRegExp::LastIndex(unsigned int Idx) {
-	addChildOrReplace("lastIndex", newScriptVar((int)Idx));
-}
-
-CScriptVarPtr CScriptVarRegExp::exec( const string &Input, bool Test /*= false*/ )
-{
-	regex::flag_type flags = regex_constants::ECMAScript;
-	if(IgnoreCase()) flags |= regex_constants::icase;
-	bool global = Global(), sticky = Sticky();
-	unsigned int lastIndex = LastIndex();
-	int offset = 0;
-	if(global || sticky) {
-		if(lastIndex > Input.length()) goto failed; 
-		offset=lastIndex;
-	}
-	{
-		regex_constants::match_flag_type mflag = sticky?regex_constants::match_continuous:regex_constants::match_default;
-		if(offset) mflag |= regex_constants::match_prev_avail;
-		smatch match;
-		if(regex_search(Input.begin()+offset, Input.end(), match, regex(regexp, flags), mflag) ) {
-			LastIndex(offset+match.position()+match.str().length());
-			if(Test) return constScriptVar(true);
-
-			CScriptVarArrayPtr retVar = newScriptVar(Array);
-			retVar->addChild("input", newScriptVar(Input));
-			retVar->addChild("index", newScriptVar(match.position()));
-			for(smatch::size_type idx=0; idx<match.size(); idx++)
-				retVar->addChild(int2string((uint32_t)idx), newScriptVar(match[idx].str()));
-			return retVar;
-		}
-	}
-failed:
-	if(global || sticky) 
-		LastIndex(0); 
-	if(Test) return constScriptVar(false);
-	return constScriptVar(Null);
-}
-
-const char * CScriptVarRegExp::ErrorStr( int Error )
-{
-	switch(Error) {
-	case regex_constants::error_badbrace: return "the expression contained an invalid count in a { } expression";
-	case regex_constants::error_badrepeat: return "a repeat expression (one of '*', '?', '+', '{' in most contexts) was not preceded by an expression";
-	case regex_constants::error_brace: return "the expression contained an unmatched '{' or '}'";
-	case regex_constants::error_brack: return "the expression contained an unmatched '[' or ']'";
-	case regex_constants::error_collate: return "the expression contained an invalid collating element name";
-	case regex_constants::error_complexity: return "an attempted match failed because it was too complex";
-	case regex_constants::error_ctype: return "the expression contained an invalid character class name";
-	case regex_constants::error_escape: return "the expression contained an invalid escape sequence";
-	case regex_constants::error_paren: return "the expression contained an unmatched '(' or ')'";
-	case regex_constants::error_range: return "the expression contained an invalid character range specifier";
-	case regex_constants::error_space: return "parsing a regular expression failed because there were not enough resources available";
-	case regex_constants::error_stack: return "an attempted match failed because there was not enough memory available";
-	case regex_constants::error_backref: return "the expression contained an invalid back reference";
-	default: return "";
-	}
-}
-
-#endif /* NO_REGEXP */
-
-
 ////////////////////////////////////////////////////////////////////////// 
 /// CScriptVarDefaultIterator
 //////////////////////////////////////////////////////////////////////////
 
 //declare_dummy_t(DefaultIterator);
-CScriptVarDefaultIterator::CScriptVarDefaultIterator(CTinyJS *Context, const CScriptVarPtr &Object, int Mode) 
+CScriptVarDefaultIterator::CScriptVarDefaultIterator(CTinyJS *Context, const CScriptVarPtr &Object, int Mode)
 	: CScriptVarObject(Context, Context->iteratorPrototype), mode(Mode), object(Object) {
 	object->keys(keys, true);
 	pos = keys.begin();
@@ -3843,124 +3635,12 @@ void CScriptVarDefaultIterator::native_next(const CFunctionsScopePtr &c, void *d
 		ret = newScriptVar(Array);
 		ret->setArrayIndex(0, ret0);
 		ret->setArrayIndex(1, ret1);
-	} else if(mode==1) 
+	} else if(mode==1)
 		ret = ret0;
 	else
 		ret = ret1;
 	c->setReturnVar(ret);
 }
-
-
-#ifndef NO_GENERATORS
-////////////////////////////////////////////////////////////////////////// 
-/// CScriptVarGenerator
-//////////////////////////////////////////////////////////////////////////
-
-//declare_dummy_t(Generator);
-CScriptVarGenerator::CScriptVarGenerator(CTinyJS *Context, const CScriptVarPtr &FunctionRoot, const CScriptVarFunctionPtr &Function) 
-	: CScriptVarObject(Context, Context->generatorPrototype), functionRoot(FunctionRoot), function(Function), 
-	closed(false), yieldVarIsException(false), coroutine(this) {
-//		addChild("next", ::newScriptVar(context, this, &CScriptVarGenerator::native_send, 0, "Generator.next"));
-	//	addChild("send", ::newScriptVar(context, this, &CScriptVarGenerator::native_send, (void*)1, "Generator.send"));
-		//addChild("close", ::newScriptVar(context, this, &CScriptVarGenerator::native_throw, (void*)0, "Generator.close"));
-		//addChild("throw", ::newScriptVar(context, this, &CScriptVarGenerator::native_throw, (void*)1, "Generator.throw"));
-}
-CScriptVarGenerator::~CScriptVarGenerator() {
-	if(coroutine.isStarted() && coroutine.isRunning()) {
-		coroutine.Stop(false);
-		coroutine.next();
-		coroutine.Stop();
-	}
-}
-CScriptVarPtr CScriptVarGenerator::clone() { return new CScriptVarGenerator(*this); }
-bool CScriptVarGenerator::isIterator()		{return true;}
-bool CScriptVarGenerator::isGenerator()	{return true;}
-
-string CScriptVarGenerator::getVarType() { return "generator"; }
-string CScriptVarGenerator::getVarTypeTagName() { return "Generator"; }
-
-void CScriptVarGenerator::setTemporaryMark_recursive( uint32_t ID ) {
-	CScriptVarObject::setTemporaryMark_recursive(ID);
-	functionRoot->setTemporaryMark_recursive(ID);
-	function->setTemporaryMark_recursive(ID);
-	if(yieldVar) yieldVar->setTemporaryMark_recursive(ID);
-	for(std::vector<CScriptVarScopePtr>::iterator it=generatorScopes.begin(); it != generatorScopes.end(); ++it)
-		(*it)->setTemporaryMark_recursive(ID);
-}
-void CScriptVarGenerator::native_send(const CFunctionsScopePtr &c, void *data) {
-	// data == 0 ==> next()
-	// data != 0 ==> send(...)
-	if(closed)
-		throw constScriptVar(StopIteration);
-
-	yieldVar = data ? c->getArgument(0) : constScriptVar(Undefined);
-	yieldVarIsException = false;
-
-	if(!coroutine.isStarted() && data && !yieldVar->isUndefined())
-		c->throwError(TypeError, "attempt to send value to newborn generator");
-	if(coroutine.next()) {
-		c->setReturnVar(yieldVar);
-		return;
-	}
-	closed = true;
-	throw yieldVar;
-}
-void CScriptVarGenerator::native_throw(const CFunctionsScopePtr &c, void *data) {
-	// data == 0 ==> close()
-	// data != 0 ==> throw(...)
-	if(closed || !coroutine.isStarted()) {
-		closed = true;
-		if(data)
-			throw c->getArgument(0);
-		else 
-			return;
-	}
-	yieldVar = data ? c->getArgument(0) : CScriptVarPtr();
-	yieldVarIsException = true;
-	closed = data==0;
-	if(coroutine.next()) {
-		c->setReturnVar(yieldVar);
-		return;
-	}
-	closed = true;
-	/* 
-	 * from http://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Iterators_and_Generators
-	 * Generators have a close() method that forces the generator to close itself. The effects of closing a generator are:
-	 * - Any finally clauses active in the generator function are run.
-	 * - If a finally clause throws any exception other than StopIteration, the exception is propagated to the caller of the close() method.
-	 * - The generator terminates.
-	 *
-	 * but in Firefox is also "StopIteration" propagated to the caller 
-	 * define GENERATOR_CLOSE_LIKE_IN_FIREFOX to enable this behavior
-	*/
-//#define GENERATOR_CLOSE_LIKE_IN_FIREFOX
-#ifdef GENERATOR_CLOSE_LIKE_IN_FIREFOX
-	if(data || yieldVar)
-		throw yieldVar;
-#else
-	if(data || (yieldVar && yieldVar != constScriptVar(StopIteration)))
-		throw yieldVar;
-#endif
-}
-
-int CScriptVarGenerator::Coroutine()
-{
-	context->generator_start(this);
-	return 0;
-}
-
-CScriptVarPtr CScriptVarGenerator::yield( CScriptResult &execute, CScriptVar *YieldIn )
-{
-	yieldVar = YieldIn;
-	coroutine.yield();
-	if(yieldVarIsException) {
-		execute.set(CScriptResult::Throw, yieldVar);
-		return constScriptVar(Undefined);
-	}
-	return yieldVar;
-}
-
-#endif /*NO_GENERATORS*/
 
 ////////////////////////////////////////////////////////////////////////// 
 // CScriptVarFunction
@@ -4293,17 +3973,6 @@ CTinyJS::CTinyJS() {
 	var->getFunctionData()->name = "String";
 
 	//////////////////////////////////////////////////////////////////////////
-	// RegExp
-#ifndef NO_REGEXP
-	var = addNative("function RegExp()", this, &CTinyJS::native_RegExp, 0, SCRIPTVARLINK_CONSTANT);
-	regexpPrototype  = var->findChild(TINYJS_PROTOTYPE_CLASS);
-	regexpPrototype->addChild(TINYJS_CONSTRUCTOR_VAR, var, SCRIPTVARLINK_BUILDINDEFAULT);
-	regexpPrototype->addChild("valueOf", objectPrototype_valueOf, SCRIPTVARLINK_BUILDINDEFAULT);
-	regexpPrototype->addChild("toString", objectPrototype_toString, SCRIPTVARLINK_BUILDINDEFAULT);
-	pseudo_refered.push_back(&regexpPrototype);
-#endif /* NO_REGEXP */
-
-	//////////////////////////////////////////////////////////////////////////
 	// Number
 	var = addNative("function Number()", this, &CTinyJS::native_Number, 0, SCRIPTVARLINK_CONSTANT);
 	var->addChild("NaN", constNaN = newScriptVarNumber(this, NaN), SCRIPTVARLINK_CONSTANT);
@@ -4339,18 +4008,6 @@ CTinyJS::CTinyJS() {
 	iteratorPrototype = var->findChild(TINYJS_PROTOTYPE_CLASS);
 	iteratorPrototype->addChild(TINYJS_CONSTRUCTOR_VAR, var, SCRIPTVARLINK_BUILDINDEFAULT);
 	pseudo_refered.push_back(&iteratorPrototype);
-
-	//////////////////////////////////////////////////////////////////////////
-	// Generator
-//	var = addNative("function Iterator(obj,mode)", this, &CTinyJS::native_Iterator, 0, SCRIPTVARLINK_CONSTANT); 
-#ifndef NO_GENERATORS
-	generatorPrototype = newScriptVar(Object);
-	generatorPrototype->addChild("next", ::newScriptVar(this, this, &CTinyJS::native_Generator_prototype_next, (void*)0, "Generator.next"), SCRIPTVARLINK_BUILDINDEFAULT);
-	generatorPrototype->addChild("send", ::newScriptVar(this, this, &CTinyJS::native_Generator_prototype_next, (void*)1, "Generator.send"), SCRIPTVARLINK_BUILDINDEFAULT);
-	generatorPrototype->addChild("close", ::newScriptVar(this, this, &CTinyJS::native_Generator_prototype_next, (void*)2, "Generator.close"), SCRIPTVARLINK_BUILDINDEFAULT);
-	generatorPrototype->addChild("throw", ::newScriptVar(this, this, &CTinyJS::native_Generator_prototype_next, (void*)3, "Generator.throw"), SCRIPTVARLINK_BUILDINDEFAULT);
-	pseudo_refered.push_back(&generatorPrototype);
-#endif /*NO_GENERATORS*/
 
 	//////////////////////////////////////////////////////////////////////////
 	// Function
@@ -4404,11 +4061,6 @@ CTinyJS::CTinyJS() {
 	errorPrototypes[TypeError]->addChild(TINYJS_CONSTRUCTOR_VAR, var, SCRIPTVARLINK_BUILDINDEFAULT);
 	errorPrototypes[TypeError]->addChildOrReplace(TINYJS___PROTO___VAR, errorPrototypes[Error], SCRIPTVARLINK_WRITABLE);
 	errorPrototypes[TypeError]->addChild("name", newScriptVar("TypeError"));
-
-
-
-
-
 
 	//////////////////////////////////////////////////////////////////////////
 	// add global built-in vars & constants
@@ -4648,11 +4300,6 @@ CScriptVarPtr CTinyJS::callFunction(CScriptResult &execute, const CScriptVarFunc
 	}
 	arguments->addChild("length", newScriptVar(length_arguments));
 
-#ifndef NO_GENERATORS
-	if(Fnc->isGenerator) {
-		return ::newScriptVarCScriptVarGenerator(this, functionRoot, Function);
-	} 
-#endif /*NO_GENERATORS*/
 	// execute function!
 	// add the function's execute space to the symbol table so we can recurse
 	CScopeControl ScopeControl(this);
@@ -4700,174 +4347,6 @@ CScriptVarPtr CTinyJS::callFunction(CScriptResult &execute, const CScriptVarFunc
 		execute = function_execute;
 	return constScriptVar(Undefined);
 }
-#ifndef NO_GENERATORS
-void CTinyJS::generator_start(CScriptVarGenerator *Generator)
-{
-	// push current Generator
-	generatorStack.push_back(Generator);
-
-	// safe callers stackBase & set generators one	
-	Generator->callersStackBase = stackBase;
-	stackBase = 0;
-
-	// safe callers ScopeSize
-	Generator->callersScopeSize = scopes.size();
-
-	// safe callers Tokenizer & set generators one
-	Generator->callersTokenizer = t;
-	CScriptTokenizer generatorTokenizer;
-	t = &generatorTokenizer;
-
-	// safe callers haveTry
-	Generator->callersHaveTry = haveTry;
-	haveTry = true;
-
-	// push generator's FunctionRoot
-	CScopeControl ScopeControl(this);
-	ScopeControl.addFncScope(Generator->getFunctionRoot());
-
-	// call generator-function
-	CScriptTokenDataFnc *Fnc = Generator->getFunction()->getFunctionData();
-	CScriptResult function_execute;
-	TOKEN_VECT eof(1, CScriptToken());
-	t->pushTokenScope(eof);
-	t->pushTokenScope(Fnc->body);
-	t->currentFile = Fnc->file;
-	try {
-		if(Fnc->body.front().token == '{')
-			execute_block(function_execute);
-		else {
-			execute_base(function_execute);
-		}
-		if(function_execute.isThrow())
-			Generator->setException(function_execute.value);
-		else
-			Generator->setException(constStopIteration);
-//	} catch(CScriptVarPtr &e) {
-//		Generator->setException(e);
-	} catch(CScriptCoroutine::StopIteration_t &) {
-		Generator->setException(CScriptVarPtr());
-//	} catch(CScriptException *e) {
-//		Generator->setException(newScriptVarError(this, *e));
-	} catch(...) {
-		// pop current Generator
-		generatorStack.pop_back();
-
-		// restore callers stackBase
-		stackBase = Generator->callersStackBase;
-
-		// restore callers Scope (restored by ScopeControl
-		//		scopes.erase(scopes.begin()+Generator->callersScopeSize, scopes.end());
-
-		// restore callers Tokenizer
-		t = Generator->callersTokenizer;
-
-		// restore callers haveTry
-		haveTry = Generator->callersHaveTry;
-
-		Generator->setException(constStopIteration);
-		// re-throw
-		throw;
-	}
-	// pop current Generator
-	generatorStack.pop_back();
-
-	// restore callers stackBase
-	stackBase = Generator->callersStackBase;
-
-	// restore callers Scope (restored by ScopeControl
-	//		scopes.erase(scopes.begin()+Generator->callersScopeSize, scopes.end());
-
-	// restore callers Tokenizer
-	t = Generator->callersTokenizer;
-
-	// restore callers haveTry
-	haveTry = Generator->callersHaveTry;
-}
-CScriptVarPtr CTinyJS::generator_yield(CScriptResult &execute, CScriptVar *YieldIn)
-{
-	if(!execute) return constUndefined;
-	CScriptVarGenerator *Generator = generatorStack.back(); 
-	if(Generator->isClosed()) {
-		throwError(execute, TypeError, "yield from closing generator function");
-		return constUndefined;
-	}
-
-	// pop current Generator
-	generatorStack.pop_back(); 
-
-	// safe generators and restore callers stackBase
-	void *generatorStckBase = stackBase;
-	stackBase = Generator->callersStackBase;
-
-	// safe generators and restore callers scopes
-	Generator->generatorScopes.assign(scopes.begin()+Generator->callersScopeSize, scopes.end());
-	scopes.erase(scopes.begin()+Generator->callersScopeSize, scopes.end());
-
-	// safe generators and restore callers Tokenizer
-	CScriptTokenizer *generatorTokenizer = t;
-	t = Generator->callersTokenizer;
-
-	// safe generators and restore callers haveTry
-	bool generatorsHaveTry = haveTry;
-	haveTry = Generator->callersHaveTry;
-
-	CScriptVarPtr ret;
-	try {
-		ret = Generator->yield(execute, YieldIn);
-	} catch(...) {
-		// normaly catch(CScriptCoroutine::CScriptCoroutineFinish_t &)
-		// force StopIteration with call CScriptCoroutine::Stop() before CScriptCoroutine::next()
-		// but catch(...) is for paranoia
-		
-		// push current Generator
-		generatorStack.push_back(Generator);
-
-		// safe callers and restore generators stackBase
-		Generator->callersStackBase = stackBase;
-		stackBase = generatorStckBase;
-
-		// safe callers and restore generator Scopes
-		Generator->callersScopeSize = scopes.size();
-		scopes.insert(scopes.end(), Generator->generatorScopes.begin(), Generator->generatorScopes.end());
-		Generator->generatorScopes.clear();
-
-		// safe callers and restore generator Tokenizer
-		Generator->callersTokenizer = t;
-		t = generatorTokenizer;
-
-		// safe callers and restore generator haveTry
-		Generator->callersHaveTry = haveTry;
-		haveTry = generatorsHaveTry;
-
-		// re-throw
-		throw;
-	} 
-	// push current Generator
-	generatorStack.push_back(Generator);
-
-	// safe callers and restore generators stackBase
-	Generator->callersStackBase = stackBase;
-	stackBase = generatorStckBase;
-
-	// safe callers and restore generator Scopes
-	Generator->callersScopeSize = scopes.size();
-	scopes.insert(scopes.end(), Generator->generatorScopes.begin(), Generator->generatorScopes.end());
-	Generator->generatorScopes.clear();
-
-	// safe callers and restore generator Tokenizer
-	Generator->callersTokenizer = t;
-	t = generatorTokenizer;
-
-	// safe callers and restore generator haveTry
-	Generator->callersHaveTry = haveTry;
-	haveTry = generatorsHaveTry;
-
-	return ret;
-}
-#endif /*NO_GENERATORS*/
-
-
 
 CScriptVarPtr CTinyJS::mathsOp(CScriptResult &execute, const CScriptVarPtr &A, const CScriptVarPtr &B, int op) {
 	if(!execute) return constUndefined;
@@ -5071,18 +4550,6 @@ CScriptVarLinkWorkPtr CTinyJS::execute_literals(CScriptResult &execute) {
 			return a;
 		}
 		break;
-#ifndef NO_REGEXP
-	case LEX_REGEXP:
-		{
-			string::size_type pos = t->getToken().String().find_last_of('/');
-			string source = t->getToken().String().substr(1, pos-1);
-			string flags = t->getToken().String().substr(pos+1);
-			CScriptVarPtr a = newScriptVar(source, flags);
-			t->match(LEX_REGEXP);
-			return a;
-		}
-		break;
-#endif /* NO_REGEXP */
 	case LEX_T_OBJECT_LITERAL:
 		if(execute) {
 			CScriptTokenDataObjectLiteral &Objc = t->getToken().Object();
@@ -5140,21 +4607,6 @@ CScriptVarLinkWorkPtr CTinyJS::execute_literals(CScriptResult &execute) {
 		}
 		t->match(LEX_T_FUNCTION_OPERATOR);
 		break;
-#ifndef NO_GENERATORS
-	case LEX_R_YIELD:
-		if (execute) {
-			t->match(LEX_R_YIELD);
-			CScriptVarPtr result = constUndefined;
-			if (t->tk != ';')
-				result = execute_base(execute);
-			if(execute)
-				return generator_yield(execute, result.getVar());
-			else
-				return constUndefined;
-		} else
-			t->skip(t->getToken().Int());
-		break;
-#endif /*NO_GENERATORS*/
 	case LEX_R_NEW: // new -> create a new object
 		if (execute) {
 			t->match(LEX_R_NEW);
@@ -6242,32 +5694,6 @@ void CTinyJS::native_String(const CFunctionsScopePtr &c, void *data) {
 		c->setReturnVar(arg);
 }
 
-
-//////////////////////////////////////////////////////////////////////////
-/// RegExp
-//////////////////////////////////////////////////////////////////////////
-#ifndef NO_REGEXP
-
-void CTinyJS::native_RegExp(const CFunctionsScopePtr &c, void *data) {
-	int arglen = c->getArgumentsLength();
-	string RegExp, Flags;
-	if(arglen>=1) {
-		RegExp = c->getArgument(0)->toString();
-		try { regex(RegExp, regex_constants::ECMAScript); } catch(regex_error e) {
-			c->throwError(SyntaxError, string(e.what())+" - "+CScriptVarRegExp::ErrorStr(e.code()));
-		}
-		if(arglen>=2) {
-			Flags = c->getArgument(1)->toString();
-			string::size_type pos = Flags.find_first_not_of("gimy");
-			if(pos != string::npos) {
-				c->throwError(SyntaxError, string("invalid regular expression flag ")+Flags[pos]);
-			}
-		} 
-	}
-	c->setReturnVar(newScriptVar(RegExp, Flags));
-}
-#endif /* NO_REGEXP */
-
 //////////////////////////////////////////////////////////////////////////
 /// Number
 //////////////////////////////////////////////////////////////////////////
@@ -6283,7 +5709,6 @@ void CTinyJS::native_Number(const CFunctionsScopePtr &c, void *data) {
 	else
 		c->setReturnVar(arg);
 }
-
 
 //////////////////////////////////////////////////////////////////////////
 /// Boolean
@@ -6309,25 +5734,6 @@ void CTinyJS::native_Iterator(const CFunctionsScopePtr &c, void *data) {
 	if(c->getArgumentsLength()<1) c->throwError(TypeError, "missing argument 0 when calling function Iterator");
 	c->setReturnVar(c->getArgument(0)->toIterator(c->getArgument(1)->toBoolean()?1:3));
 }
-
-////////////////////////////////////////////////////////////////////////// 
-/// Generator
-//////////////////////////////////////////////////////////////////////////
-
-#ifndef NO_GENERATORS
-void CTinyJS::native_Generator_prototype_next(const CFunctionsScopePtr &c, void *data) {
-	CScriptVarGeneratorPtr Generator(c->getArgument("this"));
-	if(!Generator) {
-		static const char *fnc[] = {"next","send","close","throw"};
-		c->throwError(TypeError, "next/send/close/throw method called on incompatible Object");
-	}
-	if((int)data >=2)
-		Generator->native_throw(c, (void*)(((int)data)-2));
-	else
-		Generator->native_send(c, data);
-}
-#endif /*NO_GENERATORS*/
-
 
 ////////////////////////////////////////////////////////////////////////// 
 /// Function
@@ -6550,4 +5956,3 @@ void CTinyJS::ClearUnreferedVars(const CScriptVarPtr &extra/*=CScriptVarPtr()*/)
 	}
 	freeUniqueID();
 }
-
