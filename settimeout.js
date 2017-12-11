@@ -42,7 +42,9 @@ function timer_work()
 		}
 		if (changed && win >= 0) {
 			timer[win].done = true;
-			eval(timer[win].fun);
+			print(typeof(timer[win].fun));
+			if (typeof(timer[win].fun) == "function") timer[win].fun();
+			else eval(timer[win].fun);
 		}
 		for (i = 0; i < timer.length; i++) {
 			if (timer[i].period > 0) timer[i].period = timer[i].period - 1;
@@ -53,7 +55,7 @@ function timer_work()
 function fun1()
 {
 	print("fun1()");
-	setTimeout("fun1()",10);
+	//setTimeout("fun1()",10);
 }
 
 function fun2()
@@ -61,12 +63,34 @@ function fun2()
 	print("fun2()");
 }
 
+function myobj(ei)
+{
+	var num = 0;
+	
+	this.start=function() {
+		setTimeout(this.timer_func.bind(this),10);
+	};
+	this.timer_func=function() {
+		print("MyObject("+num+") timer_func()");
+	};
+	
+	num = ei;
+}
+
 function start()
 {
 	setTimeout("fun1()",1000);
 	setTimeout("fun2()",20);
+	
+	var o = new myobj(348);
+	o.start();
 }
 
 timer = new Array();
 start();
 timer_work();
+
+//FIXME: debug String.FromChar
+var ja = 66;
+var si = String.fromCharCode(ja);
+print(ja + " = " + si);

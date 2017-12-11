@@ -1,5 +1,5 @@
 CC=g++
-CFLAGS=-std=c++11 -O0 -c -g -Wall -DHOST_PC=1
+CFLAGS=-std=c++11 -O3 -c -g -Wall -DHOST_PC=1
 LDFLAGS=-g
 
 SOURCES=  \

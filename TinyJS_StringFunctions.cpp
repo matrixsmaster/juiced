@@ -325,9 +325,9 @@ static void scCharToInt(const CFunctionsScopePtr &c, void *) {
 	c->setReturnVar(c->newScriptVar(val));
 }
 
-static void scStringFromCharCode(const CFunctionsScopePtr &c, void *) {
+static void scStringFromCharCode(const CFunctionsScopePtr &c, void *userdata) {
 	char str[2];
-	str[0] = c->getArgument("char")->toNumber().toInt32();
+	str[0] = (FROMUDATA)? c->getArgument("this")->toNumber().toInt32() : c->getArgument("char")->toNumber().toInt32();
 	str[1] = 0;
 	c->setReturnVar(c->newScriptVar(str));
 }
@@ -416,6 +416,7 @@ extern "C" void _registerStringFunctions(CTinyJS *tinyJS) {
 	tinyJS->addNative("function charToInt(ch)", scCharToInt, 0, SCRIPTVARLINK_BUILDINDEFAULT); //  convert a character to an int - get its value
 	
 	tinyJS->addNative("function String.prototype.fromCharCode(char)", scStringFromCharCode, 0, SCRIPTVARLINK_BUILDINDEFAULT);
+	tinyJS->addNative("function String.fromCharCode(this,char)", scStringFromCharCode, (void*)1, SCRIPTVARLINK_BUILDINDEFAULT);
 
 	tinyJS->addNative("function String.prototype.fromFile()", scStringFromFile, 0, SCRIPTVARLINK_BUILDINDEFAULT);
 }

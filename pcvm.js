@@ -1,5 +1,59 @@
 "use strict";
 
+var timer;
+
+function setTimeoutInt(f,t,n)
+{
+	print("Setting timer (period " + t + ") to slot " + n);
+	timer[n].done = false;
+	timer[n].period = t;
+	timer[n].fun = f;
+}
+
+function setTimeout(f,t)
+{
+	var i;
+	var flg = false;
+	for (i = 0; i < timer.length; i++) {
+		if (timer[i].done == true) {
+			setTimeoutInt(f,t,i);
+			flg = true;
+			break;
+		}
+	}
+	if (flg == false) {
+		i = timer.length;
+		timer[i] = new Object();
+		print("New timer object " + i);
+		setTimeoutInt(f,t,i);
+	}
+}
+
+function timer_work()
+{
+	var win;
+	var changed = true;
+	while (changed) {
+		changed = false;
+		win = -1;
+		for (i = 0; i < timer.length; i++) {
+			if (timer[i].done == false) {
+				if (timer[i].period <= 0) win = i;
+				changed = true;
+			}
+		}
+		if (changed && win >= 0) {
+			timer[win].done = true;
+			print(typeof(timer[win].fun));
+			if (typeof(timer[win].fun) == "function") timer[win].fun();
+			else eval(timer[win].fun);
+		}
+		for (i = 0; i < timer.length; i++) {
+			if (timer[i].period > 0) timer[i].period = timer[i].period - 1;
+		}
+	}
+}
+
 function load_binary(url, cb)
 {
     var req, len;
@@ -50,8 +104,8 @@ function CPU_X86() {
     this.tlb_read_user=new Array();
     this.tlb_write_user=new Array();
     print("Filling TLB Arrays");
-    print("WARNING: INIT DISABLED. DO NOT USE.");
-    /*for(i=0; i<da; i++) {
+    //print("WARNING: INIT DISABLED. DO NOT USE.");
+    for(i=0; i<da; i++) {
         this.tlb_read_kernel[i]=-1;
         this.tlb_write_kernel[i]=-1;
         this.tlb_read_user[i]=-1;
@@ -59,7 +113,7 @@ function CPU_X86() {
         //print(i + " / " + da);
         var _p = i / da * 100;
         print("TLB " + _p + " %");
-    }*/
+    }
     print("Creating last TLB Array");
     this.tlb_pages=new Array();
     print("Filling last TLB Array");
@@ -74,12 +128,12 @@ function CPU_X86() {
 		this.phys_mem8=null;
 		fa = this.phys_mem8 = new Array();
 		print("Memory size will be "+ea);
-		print("WARNING: INIT DISABLED. DO NOT USE.");
-		/*for(i=0; i<ea; i++) {
+		//print("WARNING: INIT DISABLED. DO NOT USE.");
+		for(i=0; i<ea; i++) {
 			fa[i]=0;
 			var _p = i / ea * 100;
 			print("RAM " + _p + " %");
-		}*/
+		}
 	};
 	this.ld8_phys=function(ia) {
 		return this.phys_mem8[ia];
@@ -10268,7 +10322,8 @@ function Nh(Ig,Oh,Ph) {
 		return this.nb_sectors;
 	};
 	this.get_time=function() {
-		return+new Date();
+		//return+new Date();
+		return 1513033232713;
 	};
 	this.get_cached_block=function(Qh) {
 		var Rh,i,Sh=this.cache;
@@ -10729,7 +10784,7 @@ function Term(aa,ba,ca) {
 	};
 }
 
-var term, pc, boot_start_time, init_state, started;
+var term, pc, init_state, started;
 
 function term_start()
 {
@@ -10754,6 +10809,7 @@ function start()
 	started = 1;
 	//document.getElementById("initButton").style.visibility = 'hidden';
 
+	term_start();
 	term.writeln("[JSPC]: Init");
 
 	init_state = new Object();
@@ -10820,8 +10876,9 @@ function start3(ret)
 }
 function start_CPU()
 {
-	boot_start_time = (+new Date());
 	pc.start();
 }
-term_start();
+
+timer = new Array();
 start();
+timer_work();
