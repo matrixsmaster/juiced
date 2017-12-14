@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <strstream>
 #include "TinyJS.h"
 
 using namespace std;
@@ -4149,10 +4150,12 @@ void CTinyJS::execute(CScriptTokenizer &Tokenizer) {
 }
 
 void CTinyJS::execute(const char *Code, const string &File, int Line, int Column) {
+	function_call_stack.clear();
 	evaluateComplex(Code, File, Line, Column);
 }
 
 void CTinyJS::execute(const string &Code, const string &File, int Line, int Column) {
+	function_call_stack.clear();
 	evaluateComplex(Code, File, Line, Column);
 }
 
@@ -4311,7 +4314,7 @@ CScriptVarPtr CTinyJS::callFunction(CScriptResult &execute, const CScriptVarFunc
 			CScriptVarFunctionNativePtr(Function)->callFunction(functionRoot);
 			CScriptVarLinkPtr ret = functionRoot->findChild(TINYJS_RETURN_VAR);
 			function_execute.set(CScriptResult::Return, ret ? CScriptVarPtr(ret) : constUndefined);
-		} catch (CScriptVarPtr v) {
+		} catch (CScriptVarPtr &v) {
 			if(haveTry) {
 				function_execute.setThrow(v, "native function '"+Fnc->name+"'");
 			} else if(v->isError()) {
@@ -4326,16 +4329,28 @@ CScriptVarPtr CTinyJS::callFunction(CScriptResult &execute, const CScriptVarFunc
 		/* we just want to execute the block, but something could
 			* have messed up and left us with the wrong ScriptLex, so
 			* we want to be careful here... */
-		string oldFile = t->currentFile;
-		t->currentFile = Fnc->file;
-		t->pushTokenScope(Fnc->body);
-		if(Fnc->body.front().token == '{')
-			execute_block(function_execute);
-		else {
-			CScriptVarPtr ret = execute_base(function_execute);
-			if(function_execute) function_execute.set(CScriptResult::Return, ret);
-		}
-		t->currentFile = oldFile;
+//		try {
+			int iline = t->getPos().currentLine();
+			string oldFile = t->currentFile;
+			t->currentFile = Fnc->file;
+			t->pushTokenScope(Fnc->body);
+			function_call_stack.push_back(pair<string,int> (Fnc->name,iline));
+			if(Fnc->body.front().token == '{')
+				execute_block(function_execute);
+			else {
+				CScriptVarPtr ret = execute_base(function_execute);
+				if(function_execute) function_execute.set(CScriptResult::Return, ret);
+			}
+			t->currentFile = oldFile;
+			function_call_stack.pop_back();
+//		} catch (CScriptVarPtr &v) {
+//			printf("DFLKDJLFKJFLKDJFLK|N\n");
+//		} catch (CScriptException &ve) {
+//			throw ve;
+//		} catch (...) {
+//			Fnc->
+//			throw new CScriptException(Error, "uncaught exception in script function '"+Fnc->name+"'");
+//		}
 
 		// because return will probably have called this, and set execute to false
 	}
@@ -4348,6 +4363,23 @@ CScriptVarPtr CTinyJS::callFunction(CScriptResult &execute, const CScriptVarFunc
 	} else
 		execute = function_execute;
 	return constScriptVar(Undefined);
+}
+
+string CTinyJS::DumpCallStack()
+{
+	string ret;
+	while (!function_call_stack.empty()) {
+		stringstream ss;
+		ss << function_call_stack.back().second;
+		ret += "\n\t from '";
+		ret += function_call_stack.back().first;
+		ret += "' at line ";
+		ret += ss.str();
+//		ret += '\n';
+		function_call_stack.pop_back();
+//		ss.clear()
+	}
+	return ret;
 }
 
 CScriptVarPtr CTinyJS::mathsOp(CScriptResult &execute, const CScriptVarPtr &A, const CScriptVarPtr &B, int op) {
@@ -5233,7 +5265,7 @@ void CTinyJS::execute_statement(CScriptResult &execute) {
 				if(tmp_execute.isThrow()){
 					if(tmp_execute.value != constStopIteration) {
 						if(!haveTry) 
-							throw new CScriptException("uncaught exception: '"+tmp_execute.value->toString(CScriptResult())+"'", t->currentFile, t->currentLine(), t->currentColumn());
+							throw new CScriptException("uncaught exception (_t_for_in): '"+tmp_execute.value->toString(CScriptResult())+"'", t->currentFile, t->currentLine(), t->currentColumn());
 						else
 							execute = tmp_execute;
 					}
@@ -5387,7 +5419,7 @@ void CTinyJS::execute_statement(CScriptResult &execute) {
 			if(execute.isThrow() && !haveTry) { // (exception in catch or finally or no catch-clause found) and no parent try-block 
 				if(execute.value->isError())
 					throw CScriptVarErrorPtr(execute.value)->toCScriptException();
-				throw new CScriptException("uncaught exception: '"+execute.value->toString()+"'", execute.throw_at_file, execute.throw_at_line, execute.throw_at_column);
+				throw new CScriptException("uncaught exception (_t_try): '"+execute.value->toString()+"'", execute.throw_at_file, execute.throw_at_line, execute.throw_at_column);
 			}
 
 		}
@@ -5403,7 +5435,7 @@ void CTinyJS::execute_statement(CScriptResult &execute) {
 				if(haveTry)
 					execute.setThrow(a, t->currentFile, tokenPos.currentLine(), tokenPos.currentColumn());
 				else
-					throw new CScriptException("uncaught exception: '"+a->toString(execute)+"'", t->currentFile, tokenPos.currentLine(), tokenPos.currentColumn());
+					throw new CScriptException("uncaught exception (_r_throw): '"+a->toString(execute)+"'", t->currentFile, tokenPos.currentLine(), tokenPos.currentColumn());
 			}
 		} else
 			t->skip(t->getToken().Int());

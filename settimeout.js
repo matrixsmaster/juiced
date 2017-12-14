@@ -89,8 +89,3 @@ function start()
 timer = new Array();
 start();
 timer_work();
-
-//FIXME: debug String.FromChar
-var ja = 66;
-var si = String.fromCharCode(ja);
-print(ja + " = " + si);

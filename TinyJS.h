@@ -38,6 +38,7 @@
 #include <string.h>
 #include <cassert>
 #include <limits>
+#include <deque>
 
 #define NO_POOL_ALLOCATOR
 #define NO_REGEXP
@@ -2049,10 +2050,14 @@ private:
 			throwError(execute, ReferenceError, link->getName() + " is not defined", Pos);
 	}
 
+private:
+	std::deque<std::pair<std::string,int> > function_call_stack;
+
 public:
 	// function call
 	CScriptVarPtr callFunction(const CScriptVarFunctionPtr &Function, std::vector<CScriptVarPtr> &Arguments, const CScriptVarPtr &This, CScriptVarPtr *newThis=0);
 	CScriptVarPtr callFunction(CScriptResult &execute, const CScriptVarFunctionPtr &Function, std::vector<CScriptVarPtr> &Arguments, const CScriptVarPtr &This, CScriptVarPtr *newThis=0);
+	std::string DumpCallStack();
 
 	// parsing - in order of precedence
 	CScriptVarPtr mathsOp(CScriptResult &execute, const CScriptVarPtr &a, const CScriptVarPtr &b, int op);

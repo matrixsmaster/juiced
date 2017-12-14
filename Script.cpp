@@ -60,7 +60,7 @@ void js_dump(const CFunctionsScopePtr &v, void *) {
 #define handle_error(msg) do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
 char *topOfStack;
-#define sizeOfStack 64*1024*1024 /* for example 1 MB depend of Compiler-Options */
+#define sizeOfStack 1*1024*1024 /* for example 1 MB depend of Compiler-Options */
 #define sizeOfSafeStack 50*1024 /* safety area */
 
 int main(int argc, char* argv[])
@@ -89,7 +89,7 @@ int main(int argc, char* argv[])
 			js->execute(addr);
 			printf("Program finished successfully\n");
 		} catch(CScriptException *e) {
-			printf("ERROR: %s\n", e->toString().c_str());
+			printf("Exception caught at top level: %s, stack: %s\n",e->toString().c_str(),js->DumpCallStack().c_str());
 		}
 
 		munmap(addr,sb.st_size);

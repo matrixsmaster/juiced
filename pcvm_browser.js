@@ -2,6 +2,11 @@
 
 var timer,gladis,killswitch,mtable,nocturnal;
 
+function print(s)
+{
+	console.log(s);
+}
+
 function setTimeoutInt(f,t,n)
 {
 	print("Setting timer (period " + t + ") to slot " + n);
@@ -31,7 +36,7 @@ function setTimeout(f,t)
 
 function timer_work()
 {
-	var win;
+	var i,win;
 	var changed = true;
 	while (changed) {
 		changed = false;
@@ -42,6 +47,7 @@ function timer_work()
 				changed = true;
 			}
 		}
+		print("winner is " + win);
 		if (changed && win >= 0) {
 			timer[win].done = true;
 			print(typeof(timer[win].fun));
@@ -52,16 +58,78 @@ function timer_work()
 			if (timer[i].period > 0) timer[i].period = timer[i].period - 1;
 		}
 	}
+	print("End of main loop");
 }
 
 function load_binary(url, cb)
 {
-    var req, len;
-    print("load_binary: url=" + url);
-    req = url.fromFile();
-    len = req.length;
-    print("len = " + len);
-    cb(req,len);
+    var req, typed_array, is_ie;
+
+    // console.log("load_binary: url=" + url);
+
+    req = new XMLHttpRequest();
+    req.open('GET', url, true);
+
+    /* completion function */
+    req.onreadystatechange = function() {
+        var err, data, len, i, buf;
+
+        if (req.readyState == 4) {
+            //            console.log("req status=" + req.status);
+            if (req.status != 200 && req.status != 0) {
+				print("NO DATA LOADED");
+                cb(null, -1);
+            } else {
+                if (is_ie) {
+                    data = new VBArray(req.responseBody).toArray();
+                    len = data.length;
+                    cb(data, len);
+                } else {
+                    if (typed_array && 'mozResponse' in req) {
+                        /* firefox 6 beta */
+                        data = req.mozResponse;
+                    } else if (typed_array && req.mozResponseArrayBuffer) {
+                        /* Firefox 4 */
+                        data = req.mozResponseArrayBuffer;
+                    } else if ('responseType' in req) {
+                        /* Note: in Android 3.0 there is no typed arrays so its
+                           returns UTF8 text */
+                        data = req.response;
+                    } else {
+                        data = req.responseText;
+                        typed_array = false;
+                    }
+                
+                    if (typed_array) {
+                        len = data.byteLength;
+                        buf = new Uint8Array(data, 0, len);
+                        print("LOADED " + len + " BYTES (TYPED)");
+                        cb(buf, len);
+                    } else {
+                        len = data.length;
+                        print("LOADED " + len + " BYTES");
+                        cb(data, len);
+                    }
+                }
+            }
+        }
+    };
+
+    is_ie = (typeof ActiveXObject == "function");
+    if (!is_ie) {
+        typed_array = ('ArrayBuffer' in window && 'Uint8Array' in window);
+        if (typed_array && 'mozResponseType' in req) {
+            /* firefox 6 beta */
+            req.mozResponseType = 'arraybuffer';
+        } else if (typed_array && 'responseType' in req) {
+            /* Chrome */
+            req.responseType = 'arraybuffer';
+        } else {
+            req.overrideMimeType('text/plain; charset=x-user-defined');
+            typed_array = false;
+        }
+    }
+    req.send(null);
 }
 
 function CPU_X86() {
@@ -105,17 +173,14 @@ function CPU_X86() {
     this.tlb_write_user=new Array();
     print("Filling TLB Arrays");
     //print("WARNING: INIT DISABLED. DO NOT USE.");
-    var _old = -1;
     for(i=0; i<da; i++) {
         this.tlb_read_kernel[i]=-1;
         this.tlb_write_kernel[i]=-1;
         this.tlb_read_user[i]=-1;
         this.tlb_write_user[i]=-1;
-        var _p = Math.floor(i / da * 100);
-        if (_p > _old) {
-			print("TLB " + _p + " %");
-			_old = _p;
-		}
+        //print(i + " / " + da);
+        var _p = i / da * 100;
+        //print("TLB " + _p + " %");
     }
     print("Creating last TLB Array");
     this.tlb_pages=new Array();
@@ -132,14 +197,10 @@ function CPU_X86() {
 		fa = this.phys_mem8 = new Array();
 		print("Memory size will be "+ea);
 		//print("WARNING: INIT DISABLED. DO NOT USE.");
-		var _old = -1;
 		for(i=0; i<ea; i++) {
 			fa[i]=0;
-			var _p = Math.floor(i / ea * 100);
-			if (_p > _old) {
-				print("RAM " + _p + " %");
-				_old = _p;
-			}
+			var _p = i / ea * 100;
+			//print("RAM " + _p + " %");
 		}
 	};
 	this.ld8_phys=function(ia) {
@@ -288,23 +349,22 @@ function CPU_X86() {
 
 	this.exec=function(xa) {
 		var Fg,Oa,Gg,ya;
-		print("exec("+xa+")");
 		Gg=this.cycle_count+xa;
 		Oa=256;
 		ya=null;
 		while(this.cycle_count<Gg) {
-			try {
+			//try {
 				Oa=this.exec_internal(Gg-this.cycle_count,ya);
 				print("exec_internal returned "+Oa);
 				if(Oa!=256)break;
 				ya=null;
-			} catch(Hg) {
+			/*} catch(Hg) {
 				print("CATCHED " + Hg);
 				if(Hg.hasOwnProperty("intno")) 
 					ya=Hg;
 				else
 					throw Hg;
-			}
+			}*/
 		}
 		return Oa;
 	};
@@ -317,28 +377,18 @@ function CPU_X86() {
 				Jg(sg);
 			}
 			else {
-				var _str = "First 8 bytes: ";
 				if(typeof Lg=="string") {
-					var _old = -1;
 					for(i=0; i<sg; i++) {
-						//var _p = i / sg * 100;
+						var _p = i / sg * 100;
 						//print("LD " + _p + " %");
-						var _p = Math.floor(i / sg * 100);
-						if (_p > _old) {
-							print("LD  " + _p + " %");
-							_old = _p;
-						}
-						if (i < 8) _str = _str + ta(Lg.charCodeAt(i)) + " ";
 						za.st8_phys(ia+i,Lg.charCodeAt(i));
 					}
 				}
 				else {
 					for(i=0; i<sg; i++) {
-						if (i < 8) _str = _str + ta(Lg[i]) + " ";
 						za.st8_phys(ia+i,Lg[i]);
 					}
 				}
-				print(_str);
 				Jg(sg);
 			}
 		};
@@ -10523,7 +10573,7 @@ function PCEmulator(ei) {
 		ii=za.cycle_count+100000;
 		ji=false;
 		ki=false;
-		print("cycles = " + za.cycle_count);
+		console.log("cycles = " + za.cycle_count);
 		if (za.cycle_count >= 700000) killswitch = true;
 	li:
 		while(za.cycle_count<ii) {
@@ -10910,6 +10960,7 @@ function start3(ret)
 
 	term.writeln("[JSPC]: Ready to start CPU!");
 	setTimeout("start_CPU()",2000);
+	timer_work();
 }
 function start_CPU()
 {
@@ -10940,17 +10991,17 @@ function showdump()
 		}
 	}
 	print(_s);*/
-
+	
 	print("eb: "+mtable.eb);
 	print("hb: "+mtable.hb);
 	print("kb: "+mtable.kb);
 	print("lb: "+mtable.lb);
 	print("gb: "+mtable.gb);
-
+	
 	var i;
 	print("Nocturnal "+nocturnal.length);
-	for (i = 0; i < nocturnal.length; i++) print(nocturnal[i]);
-	print("END OF DUMP");
+	for (i = 9366; i < 57000; i++) print(nocturnal[i]);
+	print("END OF DUMP(9366-57000)");
 }
 
 timer = new Array();
@@ -10963,6 +11014,4 @@ mtable.lb = 0;
 mtable.gb = 0;
 nocturnal = new Array();
 killswitch = false;
-start();
-timer_work();
-showdump();
+print("All Clear");
